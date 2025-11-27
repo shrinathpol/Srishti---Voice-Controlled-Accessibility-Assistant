@@ -126,3 +126,4 @@ yolov8x.pt
 /augmentation/saved/
 /test/
 /weights/
+/core/models/
