@@ -16,11 +16,12 @@ def handle_offline_command(query):
         return
         
     # 2. If not in cache, fall back to keyword-based logic
-    if 'what is the time' in query: # query is now the command itself, e.g., "what is the time"
+    lower_query = query.lower()
+    if 'what is the time' in lower_query: # query is now the command itself, e.g., "what is the time"
         strTime = datetime.datetime.now().strftime("%H:%M:%S")
         speak(f"The time is {strTime}")
     
-    elif 'hello jarvis' in query:
+    elif 'hello jarvis' in lower_query:
         # This combines the logic from your two duplicate blocks
         speak("Hello! I am currently in offline mode. How can I help?")
     

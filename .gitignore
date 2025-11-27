@@ -124,3 +124,5 @@ yolov8l.pt
 yolov8x.pt
 /runs/
 /augmentation/saved/
+/test/
+/weights/
