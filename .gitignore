@@ -128,3 +128,4 @@ yolov8x.pt
 /weights/
 /core/models/
 /models/
+/offline_model_trainer/models/
