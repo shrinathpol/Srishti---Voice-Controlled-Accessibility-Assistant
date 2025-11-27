@@ -1,48 +1,127 @@
-# Jarvis/core/speech_engine.py
-import speech_recognition as sr
 import pyttsx3
-import pyaudio
-import re # We need to import the 're' (regular expression) module for filtering
+import queue
+import sounddevice as sd
+import json
+import vosk
+import threading
+import sys
+import os
+import time
 
-# Initialize the speech engine
+# --- New Debugging Function ---
+def list_microphones():
+    """Prints a list of available input microphones and their indices."""
+    print("Available microphones:")
+    devices = sd.query_devices()
+    for i, device in enumerate(devices):
+        # Filter for input devices
+        if device['max_input_channels'] > 0:
+            print(f"  [{i}] {device['name']}")
+    return devices
+# --- End of New Function ---
 
-engine = pyttsx3.init()
-voices = engine.getProperty('voices')
-engine.setProperty('voice', voices[0].id)
+# ----------------------------
+# Text-to-Speech (TTS) Engine
+# ----------------------------
+tts_engine = pyttsx3.init()
+tts_engine.setProperty("rate", 175)  # Speed of speech
+tts_engine.setProperty("volume", 1.0)  # Volume (0.0 to 1.0)
 
-def speak(text):
+def speak(text: str):
     """
-    Speaks the given text using the initialized engine after cleaning it.
+    Convert text to speech offline using pyttsx3.
+    This is a blocking call.
     """
-    # 1. Clean the text before speaking
-    # This regular expression keeps only alphanumeric characters and spaces
-    clean_text = re.sub(r'[^a-zA-Z0-9\s.,?!]', '', text)
+    try:
+        tts_engine.say(text)
+        tts_engine.runAndWait()
+    except Exception as e:
+        print(f"Error in TTS engine: {e}")
 
-    print(f"Jarvis: {clean_text}")     
-    engine.say(clean_text)
-    engine.runAndWait()
+# ----------------------------
+# Speech-to-Text (STT) Engine
+# ----------------------------
+try:
+    vosk_model_path = os.path.join("core", "models", "vosk-model-en-us-0.42-gigaspeech")
+    if not os.path.exists(vosk_model_path):
+        raise FileNotFoundError(f"Vosk model not found at: {vosk_model_path}")
+    
+    vosk_model = vosk.Model(vosk_model_path)
+    recognizer = vosk.KaldiRecognizer(vosk_model, 16000)
+except Exception as e:
+    print(f"❌ Error loading Vosk model. Make sure it's in the correct path.")
+    print(f"Reason: {e}")
+    vosk_model = None
+    recognizer = None
 
-def take_command():
-    """Listens for a command from the user and returns the text."""
-    r = sr.Recognizer()
-    
-    # Replace '7' with the device index of your microphone
-    mic_index = 1 # This is likely your built-in mic. Try 1, 15, or 16 if it doesn't work.
-    
-    with sr.Microphone(device_index=mic_index) as source:
-        print("Listening...")
-        r.pause_threshold = 1.5
-        r.adjust_for_ambient_noise(source, duration=2)
-        audio = r.listen(source)
+def take_command(timeout: int = 5, device_index: int = None) -> str:
+    """
+    Listens to user voice input and converts it to text (offline).
+    Returns recognized text, or "none" if not understood.
+    Accepts an optional device_index to specify the microphone.
+    """
+    if recognizer is None:
+        print("Vosk recognizer is not available.")
+        return "none"
+
+    q = queue.Queue()
+
+    def callback(indata, frames, time, status):
+        if status:
+            print(status, file=sys.stderr)
+        q.put(bytes(indata))
 
     try:
-        print("Recognizing...")
-        query = r.recognize_google(audio, language='en-in')
-        print(f"User said: {query}\n")
-        return query
-    except sr.UnknownValueError:
-        print("Could not understand audio.")
+        with sd.RawInputStream(
+            samplerate=16000,
+            blocksize=8000,
+            dtype="int16",
+            channels=1,
+            callback=callback,
+            device=device_index
+        ):
+            print("🎤 Listening...")
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                try:
+                    data = q.get(block=False)
+                    if recognizer.AcceptWaveform(data):
+                        result = json.loads(recognizer.Result())
+                        return result.get("text", "").lower()
+                except queue.Empty:
+                    time.sleep(0.1)
+            
+            # After timeout, get the final result
+            final_result = json.loads(recognizer.FinalResult())
+            return final_result.get("text", "").lower()
+    
+    except Exception as e:
+        print(f"❌ Error during microphone input: {e}")
+        print("Please check your microphone and its settings.")
         return "none"
-    except sr.RequestError as e:
-        print(f"Could not request results from Google Speech Recognition service; {e}")
-        return "none"
+
+if __name__ == "__main__":
+    def list_microphones():
+        """Prints a list of available input microphones and their indices."""
+        print("Available microphones:")
+        devices = sd.query_devices()
+        for i, device in enumerate(devices):
+            # Filter for input devices
+            if device['max_input_channels'] > 0:
+                print(f"  [{i}] {device['name']}")
+        return devices
+
+    # --- Debugging Step ---
+    print("Listing microphones for debugging:")
+    list_microphones()
+    print("-" * 20)
+    # ----------------------
+
+    # Replace 'None' with the index of your desired microphone
+    # Example: MIC_TO_USE = 1
+    MIC_TO_USE = None
+
+    print("Say something...")
+    query = take_command(timeout=8, device_index=MIC_TO_USE)
+    print("You said:", query)
+    speak(f"You said: {query}")

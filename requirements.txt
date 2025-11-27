@@ -1,20 +1,10 @@
-# requirements.txt
-
-# For speech recognition
-SpeechRecognition
-
-# For text-to-speech
-pyttsx3
-
-# For checking internet connection
 requests
-
-# For integrating with the Gemini API
-google-generativeai
-
-# For offline model inference
-numpy
-scikit-learn
-
-# For semantic search for offline responses
 sentence-transformers
+scikit-learn
+torch
+ultralytics
+opencv-python
+openai-whisper
+TTS
+sounddevice
+google-generativeai

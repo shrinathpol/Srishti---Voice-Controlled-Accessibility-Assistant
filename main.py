@@ -1,5 +1,3 @@
-# main.py
-
 import datetime
 import requests
 import os
@@ -8,158 +6,269 @@ import json
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import threading
-import time
+
+os.environ["GRPC_VERBOSITY"] = "ERROR"
+os.environ["GRPC_CPP_VERBOSITY"] = "ERROR"
 
 # Import core modules
-from core.speech_engine import speak, take_command, stop_speaking_event
-from core.command_handler import get_gemini_response
+from core.speech_engine import speak, take_command
+from core.command_handler import get_gemini_response, CACHE_FILE as ONLINE_CACHE_PATH
 from core.offline_mode import handle_offline_command
-from core.command_handler import CACHE_FILE as ONLINE_CACHE_PATH
-# Import offline inference functions
 from offline_model_trainer.src.offline_inference import load_model, preprocess_input, make_prediction
+from core.camera_handler import run_live_assistance
+from core.config import OFFLINE_MODEL_PATH, DETECTION_COOLDOWN, YOLO_MODEL_PATH
 
-# Global variable to store the chosen language
-chosen_language = "en-in"
-
-# Global variable to store the offline model
-offline_model = None
-
-def choose_language(language_code):
-    """Sets the chosen language for speech recognition and synthesis."""
-    global chosen_language
-    chosen_language = language_code
-    speak(f"Language set to {language_code}")
-
-# Load validation data from JSON file
-def load_validation_data(file_path):
-    with open(file_path, 'r') as f:
-        data = json.load(f)
-    return data['validation_data']
-
-# Load pre-trained sentence transformer model
-model_sbert = SentenceTransformer('all-MiniLM-L6-v2')
-
-# Function to calculate similarity between two sentences
-def calculate_similarity(query1, query2):
-    embedding1 = model_sbert.encode(query1, convert_to_tensor=True)
-    embedding2 = model_sbert.encode(query2, convert_to_tensor=True)
-    similarity = cosine_similarity([embedding1.cpu().numpy()], [embedding2.cpu().numpy()])[0][0]
-    return similarity
-
-# Function to find the best matching response from the validation data
-def find_best_match(query, validation_data, similarity_threshold=0.5):
-    best_match = None
-    max_similarity = 0
-    for item in validation_data:
-        similarity = calculate_similarity(query, item['input'])
-        if similarity > max_similarity and similarity > similarity_threshold:
-            max_similarity = similarity
-            best_match = item['expected_output']
-    return best_match
-
-def is_connected():
-    """Check for an active internet connection."""
-    try:
-        requests.get('https://www.google.com', timeout=5)
-        return True
-    except requests.ConnectionError:
-        return False
-
-def ensure_cache_file_exists():
-    """Checks if the cache directory and file exist, creating them if not."""
-    cache_dir = os.path.dirname(ONLINE_CACHE_PATH)
-    if not os.path.exists(cache_dir):
-        os.makedirs(cache_dir)
-    if not os.path.exists(ONLINE_CACHE_PATH):
-        with open(ONLINE_CACHE_PATH, 'w', encoding='utf-8') as f:
-            f.write('{}')
+# --- Constants ---
+VALIDATION_DATA_PATH = os.path.join('offline_model_trainer', 'data', 'validation_data.json')
+NEW_TRAINING_DATA_PATH = os.path.join('data', 'knowledge_base', 'new_training_data.json')
+SIMILARITY_THRESHOLD = 0.6
 
 
+class Srishti:
+    def __init__(self):
+        self.language = "en-us"
+        self.offline_model = None
+        self.sbert_model = None
+        self.offline_model_loading = False
+        self.sbert_model_loading = False
+        self.live_assistance_thread = None
+        self.stop_live_assistance_event = threading.Event()
+        self.speech_speed = 1.3
+        self.validation_data = []
 
-def wish_me():
-    """Greets the user based on the time of day."""
-    hour = int(datetime.datetime.now().hour)
-    greeting = ""
-    if 0 <= hour < 12:
-        greeting = "Good Morning!"
-    elif 12 <= hour < 18:
-        greeting = "Good Afternoon!"
-    else:
-        greeting = "Good Evening!"
+    def load_sbert_model_background(self):
+        """Loads the SentenceTransformer model in a background thread."""
+        self.sbert_model_loading = True
+        print("Loading SentenceTransformer model in the background...")
+        try:
+            self.sbert_model = SentenceTransformer('all-MiniLM-L6-v2')
+            print("SentenceTransformer model loaded successfully.")
+        except Exception as e:
+            print(f"Error loading SentenceTransformer model: {e}")
+        finally:
+            self.sbert_model_loading = False
 
-    speak(greeting)
-    speak("I am Jarvis. How may I assist you?")
+    def load_offline_classifier_background(self):
+        """Loads the offline classification model in a background thread."""
+        self.offline_model_loading = True
+        print("Loading offline classification model in the background...")
+        try:
+            if os.path.exists(OFFLINE_MODEL_PATH):
+                self.offline_model = load_model(OFFLINE_MODEL_PATH)
+                print("Offline classification model loaded successfully.")
+            else:
+                print(f"Warning: Offline model file not found at {OFFLINE_MODEL_PATH}")
+        except Exception as e:
+            print(f"Warning: Could not load offline classification model. Reason: {e}")
+        finally:
+            self.offline_model_loading = False
 
-def get_offline_response(query, validation_data):
-    """Generates a response using the offline validation data."""
-    best_match = find_best_match(query, validation_data)
-    if best_match:
+    def is_connected(self):
+        """Check for an active internet connection."""
+        try:
+            requests.get('https://www.google.com', timeout=1.5)
+            return True
+        except requests.ConnectionError:
+            return False
+
+    def ensure_cache_file_exists(self):
+        """Checks if the cache directory and file exist, creating them if not."""
+        cache_dir = os.path.dirname(ONLINE_CACHE_PATH)
+        if not os.path.exists(cache_dir):
+            os.makedirs(cache_dir)
+        if not os.path.exists(ONLINE_CACHE_PATH):
+            with open(ONLINE_CACHE_PATH, 'w') as f:
+                json.dump({}, f)
+
+    def load_validation_data(self):
+        """Load validation data from a JSON file."""
+        if not os.path.exists(VALIDATION_DATA_PATH):
+            print(f"Warning: Validation data file not found at {VALIDATION_DATA_PATH}")
+            self.validation_data = []
+        else:
+            with open(VALIDATION_DATA_PATH, 'r') as f:
+                self.validation_data = json.load(f)
+
+    def save_for_training(self, query, response):
+        """Saves the query and response for later training."""
+        if not os.path.exists(NEW_TRAINING_DATA_PATH):
+            data = []
+        else:
+            with open(NEW_TRAINING_DATA_PATH, 'r') as f:
+                try:
+                    data = json.load(f)
+                except json.JSONDecodeError:
+                    data = []
+        
+        data.append({"input": query, "expected_output": response})
+        
+        with open(NEW_TRAINING_DATA_PATH, 'w') as f:
+            json.dump(data, f, indent=4)
+
+    def manage_speech(self, text):
+        """A wrapper for the speak function."""
+        # speak(text, speed=self.speech_speed)
+        pass
+
+    def find_best_match_by_similarity(self, query, threshold=0.6):
+        """Finds the best matching response from validation data using cosine similarity."""
+        if not self.sbert_model or not self.validation_data:
+            return None
+
+        best_match = None
+        max_similarity = 0
+        query_embedding = self.sbert_model.encode(query)
+
+        for item in self.validation_data:
+            item_embedding = self.sbert_model.encode(item['input'])
+            similarity = cosine_similarity([query_embedding], [item_embedding])[0][0]
+            if similarity > max_similarity and similarity > threshold:
+                max_similarity = similarity
+                best_match = item['expected_output']
         return best_match
-    else:
-        return "I am sorry, I don't have an answer for that offline. I can try online if you want."
 
-def stop_current_speech():
-    """Signals the speaking thread to stop."""
-    stop_speaking_event.set()
-    print("Speech interruption signal sent.")
+    def get_offline_response(self, query):
+        """
+        Generates an offline response using a tiered approach.
+        Returns a special string if models are still loading.
+        """
+        # Tier 1: Use the trained ML model
+        if self.offline_model:
+            preprocessed_query = preprocess_input({'input': query})
+            prediction = make_prediction(self.offline_model, [preprocessed_query])[0]
+            if prediction != "unknown":
+                return prediction
+        elif self.offline_model_loading:
+            return "loading"
+
+        # Tier 2: Use sentence similarity as a fallback
+        if self.sbert_model:
+            best_match = self.find_best_match_by_similarity(query)
+            if best_match:
+                return best_match
+        elif self.sbert_model_loading:
+            return "loading"
+
+        # Tier 3: Default response
+        return None
+
+    def wish_me(self):
+        """Greets the user based on the time of day."""
+        hour = datetime.datetime.now().hour
+        if 5 <= hour < 12:
+            greeting = "Good Morning!"
+        elif 12 <= hour < 18:
+            greeting = "Good Afternoon!"
+        else:
+            greeting = "Good Evening!"
+        self.manage_speech(f"{greeting} I am Srishti. How may I assist you?")
+
+    def handle_online_query(self, query):
+        """Handles online queries using the Gemini API."""
+        try:
+            print("Processing online...")
+            response_text = get_gemini_response(query)
+            self.save_for_training(query, response_text)
+            return response_text
+        except Exception as e:
+            print(f"Error from online API: {e}")
+            return "I'm having trouble connecting to my online services."
+
+    def handle_offline_query(self, query):
+        """Handles offline queries using the offline model and sentence similarity."""
+        print("Processing offline...")
+        offline_command = self.get_offline_response(query)
+        if offline_command == "loading":
+            return "My offline capabilities are still initializing. Please try again in a moment."
+        elif offline_command:
+            handle_offline_command(offline_command)
+            return ""  # Return an empty string as the command is handled
+        return "I'm not sure how to handle that offline."
+
+    def shutdown(self):
+        """Shuts down the application, stopping background threads."""
+        print("Shutting down application...")
+        self.stop_live_assistance_event.set()
+        if self.live_assistance_thread and self.live_assistance_thread.is_alive():
+            self.live_assistance_thread.join()
+        print("Application shut down.")
+
+    def start_live_assistance(self):
+        """Starts the live assistance thread."""
+        if self.live_assistance_thread and self.live_assistance_thread.is_alive():
+            self.manage_speech("Live assistance is already running.")
+            return
+
+        self.stop_live_assistance_event.clear()
+        thread = threading.Thread(target=run_live_assistance, args=(self.stop_live_assistance_event,))
+        thread.daemon = True
+        thread.start()
+        self.live_assistance_thread = thread
+        self.manage_speech("Live assistance has been started.")
+
+    def stop_live_assistance(self):
+        """Stops the live assistance thread."""
+        if not self.live_assistance_thread or not self.live_assistance_thread.is_alive():
+            self.manage_speech("Live assistance is not currently running.")
+            return
+
+        self.manage_speech("Stopping live assistance.")
+        self.stop_live_assistance_event.set()
+        # Wait for the thread to finish
+        self.live_assistance_thread.join(timeout=5)
+        self.live_assistance_thread = None
+        self.manage_speech("Live assistance has been stopped.")
+
+    def initialize_app(self):
+        """Initializes the application, loading models and data."""
+        self.ensure_cache_file_exists()
+        self.wish_me()
+
+        # Start loading models in the background
+        threading.Thread(target=self.load_sbert_model_background, daemon=True).start()
+        threading.Thread(target=self.load_offline_classifier_background, daemon=True).start()
+
+        # Load validation data
+        self.load_validation_data()
+
+    def process_query(self, query):
+        """Processes the user's query."""
+        if not query or query.strip() == "none":
+            return ""
+
+        if self.is_connected():
+            response_text = self.handle_online_query(query)
+        else:
+            response_text = self.handle_offline_query(query)
+        return response_text
+
+    def run(self):
+        """Main function to run the Srishti assistant."""
+        self.initialize_app()
+        
+        while True:
+            query = take_command().lower()
+            print(f"You said: {query}")
+
+            if query in ["goodbye", "exit", "quit"]:
+                self.manage_speech("Goodbye!")
+                break
+            
+            # Handle live assistance commands
+            if "start live assistance" in query:
+                self.start_live_assistance()
+                continue
+            elif "stop live assistance" in query:
+                self.stop_live_assistance()
+                continue
+
+            response_text = self.process_query(query)
+            
+            if response_text:
+                self.manage_speech(response_text)
+                
+        self.shutdown()
 
 if __name__ == "__main__":
-    ensure_cache_file_exists()
-
-    choose_language("en-us")
-
-    wish_me()
-
-    offline_model_path = os.path.join(os.getcwd(), 'offline_model_trainer', 'models', 'offline_model.pkl')
-    try:
-        offline_model = load_model(offline_model_path)
-        speak("Offline model loaded successfully.")
-    except Exception as e:
-        print(f"Error loading offline model: {e}")
-        speak("Failed to load offline model.")
-
-    validation_data_path = os.path.join(os.getcwd(), 'offline_model_trainer', 'data', 'validation_data.json')
-    validation_data = load_validation_data(validation_data_path)
-
-    if not is_connected():
-        speak("I am currently in offline mode. Some features may not be available.")
-    
-    while True:
-        query = take_command(lang=chosen_language)
-        if query is None:
-            continue
-        query = query.lower()
-
-        if 'jarvis stop' in query or 'stop' in query:
-            stop_current_speech()
-            speak("Goodbye!")
-            break
-
-        response_text = ""
-        if is_connected():
-            print("Online mode active.")
-            try:
-                response_text = get_gemini_response(query)
-            except Exception as e:
-                print(f"Error from Gemini API: {e}")
-                response_text = "I am sorry, there was an issue processing that online. Please try again."
-        else:
-            print("Offline mode active.")
-            response_text = get_offline_response(query, validation_data)
-            if "I can try online if you want" in response_text:
-                speak("Do you want me to try online?")
-                online_attempt = take_command(lang=chosen_language)
-                if online_attempt and "yes" in online_attempt.lower():
-                    if is_connected():
-                        try:
-                            response_text = get_gemini_response(query)
-                        except Exception as e:
-                            print(f"Error from Gemini API: {e}")
-                            response_text = "I am sorry, there was an issue processing that online. Please try again."
-                    else:
-                        response_text = "I am still offline, so I cannot search online."
-                else:
-                    response_text = "Okay, I will remain offline."
-        
-        speaking_thread_instance = threading.Thread(target=speak, args=(response_text,))
-        speaking_thread_instance.start()
+    app = Srishti()
+    app.run()

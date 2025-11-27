@@ -1,59 +1,115 @@
-# Jarvis AI Assistant
+# Srishti - Voice-Controlled Accessibility Assistant
 
-Jarvis is a versatile AI assistant capable of understanding and responding to voice commands. It can operate in both online and offline modes, providing a seamless user experience regardless of internet connectivity.
+Srishti is a voice-controlled accessibility assistant designed to help users operate a physical machine (likely a laser cutter or CNC).
 
 ## Features
 
-*   **Voice-based interaction:** Communicate with Jarvis using natural language.
-*   **Online and Offline Modes:** Access a wide range of information and assistance with an internet connection, or rely on the offline mode for essential functions when disconnected.
-*   **Intelligent Responses:** In online mode, Jarvis leverages the power of Google's Gemini API to provide comprehensive and context-aware answers.
-*   **Offline Capabilities:** The offline mode uses a pre-trained machine learning model to answer a variety of predefined questions.
-*   **Conversation History:** Jarvis remembers the context of your conversation for more natural interactions.
-*   **Multi-language Support:** Jarvis can be configured to understand and speak in different languages.
-*   **Customizable:** The project is open-source and can be extended with new commands and capabilities.
+- **Live Assistance:** Uses a webcam and a YOLO object detection model to identify and announce control panel buttons in real-time.
+- **Q&A:** Answers user questions using the Gemini API (online) or a local model (offline).
 
-## Getting Started
+## Project Structure
 
-### Prerequisites
+```
+├── augmentation
+│   ├── script.py
+│   └── saved
+├── core
+│   ├── camera_handler.py
+│   ├── command_handler.py
+│   ├── config.py
+│   ├── offline_mode.py
+│   └── speech_engine.py
+├── data
+│   ├── knowledge_base
+│   │   ├── my_data.json
+│   │   ├── new_training_data.json
+│   │   └── notes.txt
+│   └── online_cache.json
+├── offline_model_trainer
+│   ├── data
+│   │   ├── training_data.json
+│   │   └── validation_data.json
+│   ├── models
+│   │   └── offline_model.pkl
+│   ├── notebooks
+│   │   └── data_exploration.ipynb
+│   ├── src
+│   │   ├── data_processing.py
+│   │   ├── model_training.py
+│   │   ├── offline_inference.py
+│   │   ├── online_model_interface.py
+│   │   └── utils.py
+│   ├── config.yaml
+│   ├── README.md
+│   └── requirements.txt
+├── project
+│   ├── IMG_20250805_101742.jpg
+│   ├── IMG_20250805_101751.jpg
+│   ...
+├── runs
+│   └── detect
+├── test
+│   ├── test
+│   │   ├── images
+│   │   └── labels
+│   ├── train
+│   │   ├── images
+│   │   └── labels
+│   ├── valid
+│   │   ├── images
+│   │   └── labels
+│   ├── data.yaml
+│   ├── README.dataset.txt
+│   ├── README.roboflow.txt
+│   ├── train.py
+│   └── validate_labels.py
+├── .gitignore
+├── api_server.py
+├── config.py
+├── index.html
+├── main.py
+├── README.md
+├── requirements.txt
+├── test_mic.py
+└── test_speak.py
+```
 
-*   Python 3.x
-*   Pip for installing Python packages
+## Setup
 
-### Installation
-
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/your-username/Jarvis-AI-Bot.git
+1.  **Clone the repository:**
     ```
-2.  Navigate to the project directory:
-    ```bash
-    cd Jarvis-AI-Bot
+    git clone https://github.com/your-username/Srishti.git
     ```
-3.  Install the required dependencies:
-    ```bash
+2.  **Install dependencies:**
+    ```
     pip install -r requirements.txt
     ```
-4.  Set up your Gemini API key in `config.py`.
+3.  **Download Models:**
+    - Download the pre-trained YOLO model (`best.pt`) and place it in the `models` folder.
+    - Download the offline classification model (`offline_model.pkl`) and place it in the `offline_model_trainer/models` folder.
+    > **Note:** As the models are not provided in the repository, you will need to train them yourself. Refer to the `offline_model_trainer` for more information.
 
-### Usage
+## Usage
 
-To start the assistant, run the following command:
+1.  **Run the application:**
+    ```
+    python main.py
+    ```
+2.  **Voice Commands:**
+    - "live assistance" - Activates the live assistance mode.
+    - "exit" - Exits the application.
 
-```bash
-python main.py
+## Known Issues
 
-Project Structure
-The project is organized as follows:
+- The camera handler is inefficient and processes every frame.
+- The project lacks a centralized configuration.
+- The code uses a global dictionary for state management, which is not ideal.
 
-.
-├── core/                 # Core components like speech engine and command handler
-├── data/                 # Data files, including knowledge bases and caches
-├── offline_model_trainer/ # Scripts and data for training the offline model
-├── main.py               # Main application entry point
-├── requirements.txt      # Project dependencies
-└── README.md             # This file
-Contributing
-Contributions are welcome! Please feel free to submit a pull request or open an issue if you have any suggestions or find any bugs.
+## TODO
 
-
-Shall I write this to your `README.md` file?
+- [ ] Refactor the camera handler to be more efficient and stable.
+- [ ] Implement a centralized configuration system.
+- [ ] Refactor the state management to use a class.
+- [ ] Create a `requirements.txt` file at the root level.
+- [ ] Clean up the project structure.
+- [ ] Add instructions on how to train the models.

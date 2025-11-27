@@ -21,22 +21,12 @@ def make_prediction(model, input_data):
     prediction = model.predict(processed_data)
     return prediction
 
-def main(input_data, model_path='offline_model.pkl'):
+def main(input_data, model_path='models/offline_model.pkl'):
     """Main function to load the model and make a prediction."""
-    # This line gets the directory of the currently running script
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # This line creates the path to the models directory
-    model_dir = os.path.join(script_dir, 'models')
-    
-    # This line creates the full path to the model file
-    full_model_path = os.path.join(model_dir, model_path)
-    
-    # You should also add a check to make sure the file exists
-    if not os.path.exists(full_model_path):
-        raise FileNotFoundError(f"Model file not found at: {full_model_path}")
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model file not found at: {model_path}")
         
-    model = load_model(full_model_path)
+    model = load_model(model_path)
     prediction = make_prediction(model, input_data)
     return prediction
 
