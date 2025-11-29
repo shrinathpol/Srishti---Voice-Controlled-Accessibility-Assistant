@@ -117,15 +117,32 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Personal files
+# VS Code
+.vscode/
+
+# --- Project-specific ignores ---
+
+# Ignore backup files
+*.bak
+
+# Ignore temporary audio files from speech recognition
 last_input.wav
-yolo12l.pt
-yolov8l.pt
-yolov8x.pt
+
+# Ignore temporary images
+WhatsApp Image*.jpg
+
+# Ignore trained models and datasets - these should be downloaded separately
+# See README.md for instructions on where to place them.
+yolo*.pt
+best.pt
+*.pkl
+
+# Ignore output directories from training and augmentation
 /runs/
 /augmentation/saved/
-/test/
-/weights/
-/core/models/
+
+# The 'models' directories contain large files that are not stored in git
 /models/
+/core/models/
 /offline_model_trainer/models/
+/weights/
