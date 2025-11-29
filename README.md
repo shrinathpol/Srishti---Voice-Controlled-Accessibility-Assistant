@@ -105,6 +105,53 @@ Srishti is a voice-controlled accessibility assistant designed to help users ope
 - The project lacks a centralized configuration.
 - The code uses a global dictionary for state management, which is not ideal.
 
+
+
+
+graph TD
+    %% Nodes
+    User[User's Voice]
+    STT[Speech-to-Text STT Engine]
+    Core[Core Logic main.py]
+    
+    %% Vision Path
+    Cam[Camera Feed]
+    YOLO[Live Assistance Mode<br/>YOLO Object Detection]
+    
+    %% Text Path
+    NetCheck{Is Internet Connected?}
+    Gemini[Online Mode: Gemini API]
+    Offline[Offline Logic<br/>ML Classifier/Sentence Sim]
+    
+    %% Output Path
+    Response[Response Text_Variable]
+    TTS[Text-to-Speech TTS<br/>pyttsx3]
+    Speaker[Spoken Output]
+
+    %% Connections
+    User --> STT
+    STT --> Core
+    
+    %% Logic Splitting
+    Core -- "User asks to see" --> YOLO
+    Cam --> YOLO
+    YOLO --> Response
+    
+    Core -- "User asks question" --> NetCheck
+    
+    NetCheck -- Yes --> Gemini
+    NetCheck -- No --> Offline
+    
+    %% Handling Gemini Errors/Safety
+    Gemini -- "Success" --> Response
+    Gemini -- "Error / Policy Violation" --> Offline
+    
+    Offline --> Response
+    
+    %% Final Output
+    Response --> TTS
+    TTS --> Speaker
+
 ## TODO
 
 - [ ] Refactor the camera handler to be more efficient and stable.
